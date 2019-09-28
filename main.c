@@ -9,7 +9,85 @@
 
 typedef struct sockaddr SA;
 
+int server();
+int client();
+
 int main(int argc, char **argv)
+{
+	return server();
+}
+
+int client()
+{
+	int sock;
+	struct sockaddr_in server;
+	char buffer[BUFSIZ], server_reply[BUFSIZ], HTML[MAX], temp[1000];
+
+	//Create socket
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock == -1)
+	{
+		printf("Could not create socket");
+	}
+	puts("Socket created");
+
+	server.sin_addr.s_addr = inet_addr("127.0.0.1");
+	server.sin_family = AF_INET;
+	server.sin_port = htons(8888);
+
+	//Connect to remote server
+	if (connect(sock, (struct sockaddr *) &server, sizeof(server)) < 0)
+	{
+		perror("connect failed. Error");
+		return 1;
+	}
+
+	puts("Connected\n");
+
+	//keep communicating with server
+
+	while (1)
+	{
+		printf("Enter message : ");
+		scanf("%s", temp);
+		//GET
+		strcpy(buffer, "GET ");
+		strcat(buffer, temp);
+		strcat(buffer, " HTTP/1.1\r\n\r\n");
+		int nWrittern;
+		//Send some data
+		if ((nWrittern = write(sock, buffer, strlen(buffer))) < 0)
+		{
+			perror("Request write failed\n");
+			exit(1);
+		}
+		int nRead = 0, i, count = 0;
+
+		while (1)
+		{
+
+			nRead = read(sock, server_reply, BUFSIZ); //reads the html from the proxy
+
+			for (i = 0; i < strlen(server_reply); i++) //copies incoming bytes to msg2
+			{
+				HTML[count] = server_reply[i];
+				count++;
+			}
+			bzero(&server_reply, sizeof(server_reply));
+			//memset(server_reply, 0, n);
+			if ((nRead <= 0)) //or n = 0 that stops the proxy being sent
+				break; //then reading stops!
+		}
+		//Receive a reply from the server
+		puts("Server reply :");
+		puts(HTML);
+	}
+
+	close(sock);
+	return 0;
+}
+
+int server()
 {
 	char buffer[LENGTH];
 	int sock_fd, client_fd, server_fd;
@@ -17,6 +95,7 @@ int main(int argc, char **argv)
 	socklen_t client_len;
 	struct hostent *hp;
 	int port, optval = 1;
+	port = 8888;
 
 // check arguments
 //  if (argc != 2) {
@@ -69,67 +148,75 @@ int main(int argc, char **argv)
 		}
 
 		recv(client_fd, buffer, LENGTH, 0);
-		printf("========================= Received Request =========================\n");
+		printf(
+				"========================= Received Request =========================\n");
 		printf("%s\n", buffer);
-		printf("========================= ================ =========================\n");
+		printf(
+				"========================= ================ =========================\n");
 
+		// GET http://goidirectory.nic.in/index.php HTTP/1.0\r\n\r\n
 		char reqMethod[50];
 		char URL[500];
 		char rest[4000];
+		char *query = malloc(4000);
+		;
 
 		sscanf(buffer, "%s %s %s", reqMethod, URL, rest);
-		printf("The URL is %s\n", URL);
 
-		char *host = strstr(URL, "www");
-		char *temp_host = malloc(strlen(host) + 1);
-		char *temp_host2 = malloc(strlen(host) + 1);
-		strcpy(temp_host, host);
-		strcpy(temp_host2, host);
-		printf("The Host is %s\n", host);
+		char *temp_host = malloc(1000);
+		char *temp_host2 = malloc(1000);
+		char * f = malloc(1000);
+		char *hostWWW = malloc(1000);
+		char * host = malloc(1000);
 
-		char * f = index(host, ':');
-		if (f == NULL)
+		hostWWW = strstr(URL, "www");
+		if (hostWWW == NULL)
 		{
-			host = (char *) strtok(host, "/");
+			temp_host = strstr(URL, "http:");
+			temp_host += 7;
+			query = strchr(temp_host, '/');
+			if (query != NULL)
+			{
+				int index = (int) (query - temp_host);
+				strncpy(temp_host2, temp_host, index);
+				strcpy(host, temp_host2);
+			}
+			else
+			{
+				strcpy(host, temp_host);
+			}
+			printf("The Host is %s\n", host);
 		}
 		else
 		{
-			host = (char *) strtok(host, ":");
+			query = strchr(hostWWW, '/');
+			if(query != NULL)
+			{
+				int index = (int) (query - hostWWW);
+				strncpy(temp_host2, hostWWW, index);
+				strcpy(host, temp_host2);
+			}
+			else
+			{
+				strcpy(host, hostWWW);
+			}
+			printf("The Host is %s\n", host);
 		}
-
-		//extract port number
-		char *tmp = NULL;
-		tmp = (char *) strtok(temp_host, "/");
-		tmp = (char *) strstr(temp_host, ":");
-
-		printf("\nPort: %s\nHost: %s\n", tmp, host);
 
 		if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		{
-			return -1; /* check errno for cause of error */
+			return -1;
 		}
 		if ((hp = gethostbyname(host)) == NULL)
 		{
 			perror("Error: gethosbyname() \n");
-			return -2; /* check h_errno for cause of error */
+			return -1;
 		}
 
 		bzero((char *) &server_addr, sizeof(server_addr));
 		server_addr.sin_family = AF_INET;
-		bcopy((char *) hp->h_addr_list[0], (char *) &server_addr.sin_addr.s_addr,
-				hp->h_length);
-
-		if (tmp == NULL)
-		{
+		bcopy((char *) hp->h_addr_list[0], (char *) &server_addr.sin_addr.s_addr, hp->h_length);
 			server_addr.sin_port = htons(80);
-		}
-		else
-		{
-			int tok;
-			++tmp;
-			tok = atoi(tmp);
-			server_addr.sin_port = htons(tok);
-		}
 
 		if (connect(server_fd, (SA *) &server_addr, sizeof(server_addr)) < 0)
 		{
@@ -151,7 +238,7 @@ int main(int argc, char **argv)
 		}
 
 		//receive reply
-		int response_len = 0;
+		int response_len = 0, written_length;
 		ssize_t readByte;
 		while ((readByte = read(server_fd, buffer, LENGTH)) > 0)
 		{
@@ -160,10 +247,15 @@ int main(int argc, char **argv)
 			if ((nwritten = write(client_fd, buffer, readByte)) <= 0)
 			{
 				perror("client socket write failed\n");
-				return -1; /* errorno set by write() */
+				return -1;
+			}
+			else
+			{
+				written_length += nwritten;
 			}
 			bzero(buffer, LENGTH);
 		}
+
 		close(client_fd);
 		close(server_fd);
 	}
